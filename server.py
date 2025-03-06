@@ -8,6 +8,7 @@ from aiortc import (
     RTCConfiguration,
     RTCIceServer,
     RTCPeerConnection,
+    RTCRtpSender,
     RTCSessionDescription,
 )
 from aiortc.contrib.media import MediaBlackhole, MediaRelay
@@ -83,6 +84,15 @@ async def offer(request):
     def on_track(track):
         print(f"Track received: {track.kind}")
         if track.kind == "video":
+            # RTXを無効化し、特定のコーデックを強制する
+            transceiver = pc.addTransceiver("video")
+            transceiver.setCodecPreferences(
+                [
+                    codec
+                    for codec in RTCRtpSender.getCapabilities("video").codecs
+                    if codec.mimeType.lower() in ["video/h264", "video/vp8"]
+                ]
+            )
             transformed_track = VideoTransformTrack(relay.subscribe(track))
             pc.addTrack(transformed_track)
             print("Video track added to peer connection")

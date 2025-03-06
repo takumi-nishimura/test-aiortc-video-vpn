@@ -8,6 +8,7 @@ from aiortc import (
     RTCConfiguration,
     RTCIceServer,
     RTCPeerConnection,
+    RTCRtpSender,
     RTCSessionDescription,
     VideoStreamTrack,
 )
@@ -55,11 +56,21 @@ class CameraStreamTrack(VideoStreamTrack):
 
 
 async def run():
-    # WebRTCの設定（STUNサーバーを追加）
+    # WebRTCの設定（STUNサーバーを追加）とコーデック設定
     config = RTCConfiguration(
         iceServers=[RTCIceServer(urls="stun:stun.l.google.com:19302")]
     )
     pc = RTCPeerConnection(config)
+
+    # RTXを無効化し、特定のコーデックを強制する
+    transceiver = pc.addTransceiver("video")
+    transceiver.setCodecPreferences(
+        [
+            codec
+            for codec in RTCRtpSender.getCapabilities("video").codecs
+            if codec.mimeType.lower() in ["video/h264", "video/vp8"]
+        ]
+    )
 
     # ICE接続状態の監視
     @pc.on("iceconnectionstatechange")
@@ -116,7 +127,7 @@ async def run():
     # サーバーへのオファー送信
     async with aiohttp.ClientSession() as session:
         async with session.post(
-            "http://localhost:8080/offer",
+            "http://133.68.108.118:8080/offer",
             json={
                 "sdp": pc.localDescription.sdp,
                 "type": pc.localDescription.type,
