@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 
@@ -55,15 +56,15 @@ class CameraStreamTrack(VideoStreamTrack):
             return fallback_frame
 
 
-async def run():
+async def run(args):
     # WebRTCの設定（STUNサーバーを追加）とコーデック設定
     config = RTCConfiguration(
         iceServers=[RTCIceServer(urls="stun:stun.l.google.com:19302")]
     )
     pc = RTCPeerConnection(config)
 
-    # RTXを無効化し、特定のコーデックを強制する
-    transceiver = pc.addTransceiver("video")
+    # トランシーバーの設定
+    transceiver = pc.addTransceiver("video", direction="sendrecv")
     transceiver.setCodecPreferences(
         [
             codec
@@ -127,16 +128,34 @@ async def run():
     # サーバーへのオファー送信
     async with aiohttp.ClientSession() as session:
         async with session.post(
-            "http://133.68.108.118:8080/offer",
+            f"http://{args.ip}:8080/offer",
             json={
                 "sdp": pc.localDescription.sdp,
                 "type": pc.localDescription.type,
             },
         ) as resp:
-            answer = await resp.json()
-            await pc.setRemoteDescription(
-                RTCSessionDescription(sdp=answer["sdp"], type=answer["type"])
-            )
+            if resp.status == 500:
+                error_text = await resp.text()
+                print(f"Server error: {error_text}")
+                return
+
+            content_type = resp.headers.get("Content-Type", "")
+            if not content_type.startswith("application/json"):
+                error_text = await resp.text()
+                print(f"Unexpected content type: {content_type}")
+                print(f"Response text: {error_text}")
+                return
+
+            try:
+                answer = await resp.json()
+                await pc.setRemoteDescription(
+                    RTCSessionDescription(
+                        sdp=answer["sdp"], type=answer["type"]
+                    )
+                )
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"Error processing server response: {e}")
+                return
 
     # 接続状態の監視
     @pc.on("connectionstatechange")
@@ -159,4 +178,10 @@ async def run():
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    parser = argparse.ArgumentParser(description="WebRTC client example")
+    parser.add_argument(
+        "--ip", default="localhost", help="The IP address of the server"
+    )
+    args = parser.parse_args()
+
+    asyncio.run(run(args))
